@@ -19,6 +19,9 @@ class NotificationReader {
 
   static Future<NotificationData> onNotificationRecieve() async {
     var data = await _channel.invokeMethod('onNotificationRecieve');
+    if (data == null) {
+      return NotificationData();
+    }
     var res = jsonDecode(data);
     if (data != null) {
       NotificationData notifData = NotificationData(

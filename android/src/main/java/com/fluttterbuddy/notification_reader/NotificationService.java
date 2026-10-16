@@ -1,5 +1,6 @@
 package com.fluttterbuddy.notification_reader;
 
+import android.content.ComponentName;
 import android.content.Context;
 import android.os.Build;
 import android.service.notification.NotificationListenerService;
@@ -19,6 +20,14 @@ public class NotificationService extends NotificationListenerService{
     public void onCreate () {
         super .onCreate() ;
         context = getApplicationContext() ;
+    }
+    @Override
+    public void onListenerDisconnected() {
+        super.onListenerDisconnected();
+        Log.w(TAG, "Notification listener disconnected");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            requestRebind(new ComponentName(this, NotificationService.class));
+        }
     }
     @Override
     public void onNotificationPosted (StatusBarNotification sbn) {
