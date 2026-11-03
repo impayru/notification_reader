@@ -1,46 +1,70 @@
 package com.fluttterbuddy.notification_reader;
 
 import android.content.ComponentName;
-import android.content.Context;
 import android.os.Build;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
 
-import androidx.annotation.RequiresApi;
+import org.json.JSONObject;
 
-import java.util.ArrayList;
+public class NotificationService extends NotificationListenerService {
+    private static final String TAG = "NotificationService";
 
-@RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
-public class NotificationService extends NotificationListenerService{
-    private String TAG = this .getClass().getSimpleName() ;
-    Context context ;
-    public static  StatusBarNotification newSbn;
     @Override
-    public void onCreate () {
-        super .onCreate() ;
-        context = getApplicationContext() ;
+    public void onListenerConnected() {
+        super.onListenerConnected();
+        NotificationStore.listenerConnected = true;
+        try {
+            StatusBarNotification[] active = getActiveNotifications();
+            if (active != null) {
+                for (StatusBarNotification notification : active) onNotificationPosted(notification);
+            }
+        } catch (Exception e) {
+            NotificationStore.captureError = "Unable to recover active notifications: " + e.getClass().getSimpleName();
+            Log.e(TAG, NotificationStore.captureError);
+        }
     }
+
     @Override
     public void onListenerDisconnected() {
         super.onListenerDisconnected();
+        NotificationStore.listenerConnected = false;
         Log.w(TAG, "Notification listener disconnected");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             requestRebind(new ComponentName(this, NotificationService.class));
         }
     }
+
     @Override
-    public void onNotificationPosted (StatusBarNotification sbn) {
-        Log. i ( TAG , "********** Notification Recieved **********" ) ;
-        Log. i ( TAG , "ID :" + sbn.getId() + " \t " + sbn.getNotification(). tickerText + " \t " + sbn.getPackageName()) ;
-        this.newSbn = sbn;
-    }
-    @Override
-    public void onNotificationRemoved (StatusBarNotification sbn) {
-        Log. i ( TAG , "********** Notification Removed **********" ) ;
-        Log. i ( TAG , "ID :" + sbn.getId() + " \t " + sbn.getNotification(). tickerText + " \t " + sbn.getPackageName()) ;
-        this.newSbn = sbn;
+    public void onNotificationPosted(StatusBarNotification sbn) {
+        try {
+            // Snapshot before leaving the callback; never keep a mutable single slot.
+            final JSONObject data = NotificationStore.snapshot(sbn);
+            NotificationStore.EXECUTOR.execute(() -> {
+                try {
+                    if (!NotificationStore.get(getApplicationContext()).enqueue(data)) {
+                        Log.d(TAG, "Repeated notification update suppressed");
+                    }
+                } catch (Exception e) {
+                    NotificationStore.captureError = "Unable to save notification: " + e.getClass().getSimpleName();
+                    Log.e(TAG, NotificationStore.captureError);
+                }
+            });
+        } catch (Exception e) {
+            NotificationStore.captureError = "Unable to read notification: " + e.getClass().getSimpleName();
+            Log.e(TAG, NotificationStore.captureError);
+        }
     }
 
+    @Override
+    public void onNotificationRemoved(StatusBarNotification sbn) {
+        // Removal must not overwrite or acknowledge a queued delivery.
+    }
 
+    @Override
+    public void onDestroy() {
+        NotificationStore.listenerConnected = false;
+        super.onDestroy();
+    }
 }
